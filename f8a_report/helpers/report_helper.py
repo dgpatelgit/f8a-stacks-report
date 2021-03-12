@@ -19,6 +19,7 @@ from helpers.s3_helper import S3Helper
 from helpers.unknown_deps_report_helper import UnknownDepsReportHelper
 from helpers.sentry_report_helper import SentryReportHelper
 from helpers.cve_helper import CVE
+from helpers.npm_metadata import NPMMetadata
 
 logger = logging.getLogger(__file__)
 
@@ -48,6 +49,7 @@ class ReportHelper:
         self.cursor = self.pg.cursor
         self.unknown_deps_helper = UnknownDepsReportHelper()
         self.sentry_helper = SentryReportHelper()
+        self.github_token = os.environ.get('GITHUB_TOKEN')
         self.npm_model_bucket = os.getenv('NPM_MODEL_BUCKET')
         self.maven_model_bucket = os.getenv('MAVEN_MODEL_BUCKET')
         self.pypi_model_bucket = os.getenv('PYPI_MODEL_BUCKET')
@@ -362,8 +364,8 @@ class ReportHelper:
             else:
                 continue
 
-            if eco in ("npm", "go"):
-                logger.info("Handling only pypi, maven retraining")
+            if eco == 'go':
+                logger.info("Golang retraining is not supported")
                 continue
 
             if bucket_name:
@@ -373,6 +375,16 @@ class ReportHelper:
                     # Store the training content for each ecosystem
                     self.s3.store_json_content(content=training_data, bucket_name=bucket_name,
                                                obj_key=obj_key)
+
+                    # Update metadata of NPM packages in case of NPM ecosystem
+                    if eco == 'npm':
+                        start = datetime.datetime.now()
+                        npmMetadata = NPMMetadata(self.s3, self.github_token,
+                                                  bucket_name, training_data)
+                        npmMetadata.update()
+                        logger.info("It took {t} seconds to update NPM package metadata.".format(
+                            t=(datetime.datetime.now() - start).total_seconds()))
+
                     # Invoke the EMR API to kickstart retraining process
                     # This EMR invocation happens for all ecosystems almost at the same time.
                     # TODO - find an alternative if there is a need
